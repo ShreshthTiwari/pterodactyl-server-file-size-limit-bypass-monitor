@@ -2,6 +2,7 @@
   "containers_directory": "/var/lib/pterodactyl/volumes/",
   "panel_url": "",
   "admin_api_key": "",
-  "check_interval_in_seconds": 1,
+  "client_api_key": "",
+  "check_interval_in_seconds": 10,
   "discord_webhook_url": ""
 }
