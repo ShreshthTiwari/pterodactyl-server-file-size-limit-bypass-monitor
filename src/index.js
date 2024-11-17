@@ -15,7 +15,9 @@ if (
 }
 
 const cache = new NodeCache();
-const cumulativeChanges = new NodeCache();
+const cumulativeChanges = new NodeCache({
+  stdTTL: config.cumulative_change_cache_time_in_seconds,
+});
 const serversCache = new NodeCache({
   stdTTL: config.servers_list_cache_time_in_seconds,
 });
