@@ -142,6 +142,7 @@ const cacheInternalIDs = async (volumes) => {
           cache.set(volume, {
             internal_id: server.attributes.id,
             max_size: server.attributes.limits.disk / 1024,
+            name: server.attributes.name,
           });
         } else {
           console.log(
@@ -159,7 +160,7 @@ const time = () => {
   return new Date().toLocaleTimeString();
 };
 
-const sendDiscordNotification = async (volume, reason, details) => {
+const sendDiscordNotification = async (volume, volumeName, reason, details) => {
   if (!config.discord_webhook_url) return;
 
   try {
@@ -173,6 +174,11 @@ const sendDiscordNotification = async (volume, reason, details) => {
           inline: true,
         },
         {
+          name: "Name",
+          value: volumeName,
+          inline: true,
+        },
+        {
           name: "Reason",
           value: reason,
           inline: true,
@@ -180,6 +186,7 @@ const sendDiscordNotification = async (volume, reason, details) => {
         {
           name: "Details",
           value: details,
+          inline: true,
         },
       ],
       timestamp: new Date().toISOString(),
@@ -212,8 +219,10 @@ const main = async () => {
       let cachedVolumeData = cache.get(volume) ?? {
         internal_id: 0,
         max_size: 0,
+        name: "",
       };
       const volumeSize = await fetchVolumeSize(volumePath);
+      const volumeName = cachedVolumeData.name;
 
       if (
         cachedVolumeData.max_size > 0 &&
@@ -229,10 +238,11 @@ const main = async () => {
 
         await sendDiscordNotification(
           volume,
+          volumeName,
           "Storage Limit Exceeded",
-          `Current size: ${volumeSize.toFixed(2)}GB\nMax allowed: ${(
-            cachedVolumeData.max_size / 1024
-          ).toFixed(2)}GB`
+          `Current size: ${volumeSize.toFixed(
+            2
+          )}GB\nMax allowed: ${cachedVolumeData.max_size.toFixed(2)}GB`
         );
 
         if (cachedVolumeData?.internal_id > 0) {
