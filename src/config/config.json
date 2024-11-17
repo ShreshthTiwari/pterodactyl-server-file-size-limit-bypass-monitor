@@ -3,9 +3,5 @@
   "panel_url": "",
   "admin_api_key": "",
   "check_interval_in_seconds": 1,
-  "check_interval_threshold_in_gb": 1,
-  "servers_list_cache_time_in_seconds": 60,
-  "cumulative_change_cache_time_in_seconds": 300,
-  "cumulative_change_threshold_in_gb": 5,
   "discord_webhook_url": ""
 }
