@@ -239,7 +239,7 @@ const main = async () => {
         }
       } else {
         console.log(
-          `[${time()}] Volume "${volume}" size is below maximum storage limit "${
+          `[${time()}] Volume "${volume}" size "${volumeSize}" is below maximum storage limit "${
             cachedVolumeData.max_size
           }".\nBelow abuse threshold.\nSkipping...`
         );
