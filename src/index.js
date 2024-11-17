@@ -79,6 +79,31 @@ const fetchVolumeSize = async (volumePath) => {
   }
 };
 
+const emptyVolume = async (volume, volumePath) => {
+  console.log(`[${time()}] Emptying volume "${volume}"...`);
+
+  try {
+    execSync(`find "${volumePath}" -mindepth 1 -delete`, {
+      encoding: "utf8",
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 10000,
+    });
+
+    execSync(
+      `rm -rf "${volumePath}"/* "${volumePath}"/.[!.]* "${volumePath}"/..?* 2>/dev/null || true`,
+      {
+        encoding: "utf8",
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 10000,
+      }
+    );
+
+    console.log(`[${time()}] Volume "${volume}" emptied successfully.`);
+  } catch (err) {
+    console.error(`[${time()}] Error emptying volume:`, err.message);
+  }
+};
+
 const convertToGB = (bytes) => {
   return bytes / (1024 * 1024 * 1024);
 };
@@ -192,7 +217,7 @@ const main = async () => {
 
       if (
         cachedVolumeData.max_size > 0 &&
-        volumeSize > cachedVolumeData.max_size
+        volumeSize > cachedVolumeData.max_size / 10 + cachedVolumeData.max_size
       ) {
         console.log(
           `[${time()}] Volume "${volume}" "${volumeSize.toFixed(
@@ -213,27 +238,53 @@ const main = async () => {
         if (cachedVolumeData?.internal_id > 0) {
           try {
             await axios.post(
-              `${config.panel_url}/api/application/servers/${cachedVolumeData.internal_id}/suspend`,
+              `${config.panel_url}/api/client/servers/${
+                volume.split("-")[0]
+              }/power`,
               {
-                suspended: true,
+                signal: "kill",
               },
               {
                 headers: {
                   Accept: "application/json",
                   "Content-Type": "application/json",
-                  Authorization: `Bearer ${config.admin_api_key}`,
+                  Authorization: `Bearer ${config.client_api_key}`,
                 },
-                timeout: 5000,
               }
             );
-
-            console.log(`[${time()}] Volume "${volume}" suspended.`);
           } catch (err) {
             console.error(
-              `[${time()}] Error suspending volume "${volume}":`,
+              `[${time()}] Error killing volume "${volume}":`,
               err.message
             );
           }
+
+          await emptyVolume(volume, volumePath);
+
+          setTimeout(async () => {
+            try {
+              await axios.post(
+                `${config.panel_url}/api/application/servers/${cachedVolumeData.internal_id}/suspend`,
+                {},
+                {
+                  headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${config.admin_api_key}`,
+                  },
+                }
+              );
+
+              console.log(`[${time()}] Volume "${volume}" suspended.`);
+            } catch (err) {
+              console.error(
+                `[${time()}] Error suspending volume "${volume}":`,
+                err.message
+              );
+            }
+
+            await emptyVolume(volume, volumePath);
+          }, 3 * 1000);
         } else {
           console.log(
             `[${time()}] Error suspending volume "${volume}": Internal ID not found`
