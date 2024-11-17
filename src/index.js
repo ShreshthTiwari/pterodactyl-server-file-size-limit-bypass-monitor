@@ -284,7 +284,7 @@ const main = async () => {
             }
 
             await emptyVolume(volume, volumePath);
-          }, 3 * 1000);
+          }, 1 * 1000);
         } else {
           console.log(
             `[${time()}] Error suspending volume "${volume}": Internal ID not found`
