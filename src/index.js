@@ -195,9 +195,11 @@ const main = async () => {
         volumeSize > cachedVolumeData.max_size
       ) {
         console.log(
-          `[${time()}] Volume "${volume}" has surpassed its maximum storage limit "${
-            cachedVolumeData.max_size
-          }".\nSuspending volume...`
+          `[${time()}] Volume "${volume}" "${volumeSize.toFixed(
+            2
+          )}GB" has surpassed its maximum storage limit "${cachedVolumeData.max_size.toFixed(
+            2
+          )}GB".\nSuspending volume...`
         );
 
         await sendDiscordNotification(
@@ -239,9 +241,11 @@ const main = async () => {
         }
       } else {
         console.log(
-          `[${time()}] Volume "${volume}" size "${volumeSize}" is below maximum storage limit "${
-            cachedVolumeData.max_size
-          }".\nBelow abuse threshold.\nSkipping...`
+          `[${time()}] Volume "${volume}" size "${volumeSize.toFixed(
+            2
+          )}GB" is below maximum storage limit "${cachedVolumeData.max_size.toFixed(
+            2
+          )}GB".\nBelow abuse threshold.\nSkipping...`
         );
       }
     }
