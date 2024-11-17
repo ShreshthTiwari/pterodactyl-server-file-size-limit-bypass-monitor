@@ -22,7 +22,7 @@ A monitoring bot designed to detect and prevent potential file size abuse in Pte
 1. Clone this repository:
 
 ```bash
-git clone https://github.com/yourusername/pterodactyl-server-file-size-limit-bypass-monitor.git
+git clone https://github.com/ShreshthTiwari/pterodactyl-server-file-size-limit-bypass-monitor.git
 cd pterodactyl-server-file-size-limit-bypass-monitor
 ```
 
