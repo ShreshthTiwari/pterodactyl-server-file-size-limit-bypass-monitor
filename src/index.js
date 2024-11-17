@@ -63,7 +63,7 @@ const fetchVolumeSize = async (volumePath) => {
 };
 
 const convertToGB = (bytes) => {
-  return bytes * (1024 * 1024 * 1024);
+  return bytes / (1024 * 1024 * 1024);
 };
 
 const cacheInternalIDs = async (volumes) => {
