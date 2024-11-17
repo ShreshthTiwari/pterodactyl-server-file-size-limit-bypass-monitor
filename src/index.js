@@ -1,7 +1,8 @@
-const fs = require("node:fs");
+const fs = require("node:fs/promises");
 const path = require("node:path");
 const NodeCache = require("node-cache");
 const axios = require("axios");
+const { execSync } = require("child_process");
 
 const config = require("./config/config.json");
 
@@ -14,9 +15,11 @@ if (
   config.panel_url = "http://" + config.panel_url;
 }
 
-const cache = new NodeCache({
-  stdTTL: 60 * 60 * 24
-});
+if (config.panel_url.endsWith("/")) {
+  config.panel_url = config.panel_url.slice(0, -1);
+}
+
+const cache = new NodeCache();
 const cumulativeChanges = new NodeCache({
   stdTTL: config.cumulative_change_cache_time_in_seconds,
 });
@@ -28,11 +31,8 @@ const volumesPath = path.join(config.containers_directory);
 
 const listDirectoriesAsync = async (basePath) => {
   try {
-    const items = await fs.readdirSync(basePath, { withFileTypes: true });
-    const directories = items
-      .filter((item) => item.isDirectory())
-      .map((item) => item.name);
-    return directories;
+    const items = await fs.readdir(basePath, { withFileTypes: true });
+    return items.filter((item) => item.isDirectory()).map((item) => item.name);
   } catch (err) {
     console.error(`[${time()}] Error reading directory:`, err.message);
     return [];
@@ -41,10 +41,21 @@ const listDirectoriesAsync = async (basePath) => {
 
 const fetchVolumeSize = async (volumePath) => {
   try {
-    const stats = await fs.statSync(volumePath);
-    return convertToGB(stats.size);
+    const output = execSync(`du -sb "${volumePath}"`, {
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 10000,
+    });
+    const sizeInBytes = parseInt(output.split("\t")[0]);
+    return convertToGB(sizeInBytes);
   } catch (err) {
-    console.error(`[${time()}] Error fetching volume size:`, err.message);
+    if (err.code === "ETIMEDOUT") {
+      console.error(
+        `[${time()}] Timeout while fetching volume size for ${volumePath}`
+      );
+    } else {
+      console.error(`[${time()}] Error fetching volume size:`, err.message);
+    }
     return 0;
   }
 };
@@ -67,6 +78,7 @@ const cacheInternalIDs = async (volumes) => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${config.admin_api_key}`,
           },
+          timeout: 5000, // 5 second timeout
         }
       );
 
@@ -75,24 +87,26 @@ const cacheInternalIDs = async (volumes) => {
     }
 
     if (serversListData?.data) {
-      for (const volume of volumes) {
+      const volumeSizePromises = volumes.map(async (volume) => {
         const volumePath = path.join(volumesPath, volume);
         const volumeSize = await fetchVolumeSize(volumePath);
+        return { volume, volumeSize };
+      });
 
-        for (const server of serversListData.data) {
-          if (server.attributes?.uuid === volume) {
-            const cachedVolumeData = {
-              internal_id: server.attributes.id,
-              size: volumeSize,
-              max_size: server.attributes.limits.disk / 1024,
-            };
+      const volumeSizes = await Promise.all(volumeSizePromises);
 
-            cache.set(volume, cachedVolumeData);
-          }
+      for (const { volume, volumeSize } of volumeSizes) {
+        const server = serversListData.data.find(
+          (s) => s.attributes?.uuid === volume
+        );
+        if (server) {
+          cache.set(volume, {
+            internal_id: server.attributes.id,
+            size: volumeSize,
+            max_size: server.attributes.limits.disk / 1024,
+          });
         }
       }
-    } else {
-      console.error(`[${time()}] Error fetching servers list:`, err.message);
     }
   } catch (err) {
     console.error(`[${time()}] Error assigning internal IDs:`, err.message);
