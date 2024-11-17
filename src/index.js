@@ -14,7 +14,9 @@ if (
   config.panel_url = "http://" + config.panel_url;
 }
 
-const cache = new NodeCache();
+const cache = new NodeCache({
+  stdTTL: 60 * 60 * 24
+});
 const cumulativeChanges = new NodeCache({
   stdTTL: config.cumulative_change_cache_time_in_seconds,
 });
