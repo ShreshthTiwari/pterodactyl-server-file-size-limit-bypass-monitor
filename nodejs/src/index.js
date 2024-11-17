@@ -160,7 +160,13 @@ const time = () => {
   return new Date().toLocaleTimeString();
 };
 
-const sendDiscordNotification = async (volume, volumeName, reason, details) => {
+const sendDiscordNotification = async (
+  volume,
+  volumeName,
+  reason,
+  details,
+  result
+) => {
   if (!config.discord_webhook_url) return;
 
   try {
@@ -170,23 +176,23 @@ const sendDiscordNotification = async (volume, volumeName, reason, details) => {
       fields: [
         {
           name: "Volume",
-          value: volume,
-          inline: true,
+          value: "```fix\n" + `${volume}` + "\n```",
         },
         {
           name: "Name",
-          value: volumeName,
-          inline: true,
+          value: "```fix\n" + `${volumeName}` + "\n```",
         },
         {
           name: "Reason",
-          value: reason,
-          inline: true,
+          value: "```fix\n" + `${reason}` + "\n```",
         },
         {
           name: "Details",
-          value: details,
-          inline: true,
+          value: "```fix\n" + `${details}` + "\n```",
+        },
+        {
+          name: "Action Taken",
+          value: "```fix\n" + `${result}` + "\n```",
         },
       ],
       timestamp: new Date().toISOString(),
@@ -234,15 +240,6 @@ const main = async () => {
           )}GB" has surpassed its maximum storage limit "${cachedVolumeData.max_size.toFixed(
             2
           )}GB".\nSuspending volume...`
-        );
-
-        await sendDiscordNotification(
-          volume,
-          volumeName,
-          "Storage Limit Exceeded",
-          `Current size: ${volumeSize.toFixed(
-            2
-          )}GB\nMax allowed: ${cachedVolumeData.max_size.toFixed(2)}GB`
         );
 
         if (cachedVolumeData?.internal_id > 0) {
@@ -294,6 +291,16 @@ const main = async () => {
             }
 
             await emptyVolume(volume, volumePath);
+
+            await sendDiscordNotification(
+              volume,
+              volumeName,
+              "Storage Limit Exceeded",
+              `Current size: ${volumeSize.toFixed(
+                2
+              )}GB\nMax allowed: ${cachedVolumeData.max_size.toFixed(2)}GB`,
+              "All files have been deleted.\nVolume has been suspended."
+            );
           }, 1 * 1000);
         } else {
           console.log(
