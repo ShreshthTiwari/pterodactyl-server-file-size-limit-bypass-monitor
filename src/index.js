@@ -19,7 +19,9 @@ if (config.panel_url.endsWith("/")) {
   config.panel_url = config.panel_url.slice(0, -1);
 }
 
-const cache = new NodeCache();
+const cache = new NodeCache({
+  stdTTL: 60 * 60 * 24,
+});
 const cumulativeChanges = new NodeCache({
   stdTTL: config.cumulative_change_cache_time_in_seconds,
 });
@@ -61,7 +63,7 @@ const fetchVolumeSize = async (volumePath) => {
 };
 
 const convertToGB = (bytes) => {
-  return bytes / (1024 * 1024 * 1024);
+  return bytes * (1024 * 1024 * 1024);
 };
 
 const cacheInternalIDs = async (volumes) => {
@@ -78,11 +80,12 @@ const cacheInternalIDs = async (volumes) => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${config.admin_api_key}`,
           },
-          timeout: 5000, // 5 second timeout
+          timeout: 5000,
         }
       );
 
       serversListData = response.data;
+
       serversCache.set("servers_list", serversListData);
     }
 
@@ -105,6 +108,10 @@ const cacheInternalIDs = async (volumes) => {
             size: volumeSize,
             max_size: server.attributes.limits.disk / 1024,
           });
+        } else {
+          console.log(
+            `[${time()}] No matching server found for volume ${volume}`
+          );
         }
       }
     }
@@ -232,33 +239,34 @@ const main = async () => {
           );
         }
 
-        try {
-          if (cachedVolumeData?.internal_id > 0) {
+        if (cachedVolumeData?.internal_id > 0) {
+          try {
             await axios.post(
               `${config.panel_url}/api/application/servers/${cachedVolumeData.internal_id}/suspend`,
-              {},
+              {
+                suspended: true,
+              },
               {
                 headers: {
                   Accept: "application/json",
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${config.admin_api_key}`,
                 },
+                timeout: 5000,
               }
             );
 
             console.log(`[${time()}] Volume "${volume}" suspended.`);
-
             cumulativeChanges.set(volume, "0");
-          } else {
-            console.log(
-              `[${time()}] Error suspending volume "${volume}": Internal ID not found`
+          } catch (err) {
+            console.error(
+              `[${time()}] Error suspending volume "${volume}":`,
+              err.message
             );
           }
-        } catch (err) {
-          console.log(err);
-          console.error(
-            `[${time()}] Error suspending volume "${volume}":`,
-            err.message
+        } else {
+          console.log(
+            `[${time()}] Error suspending volume "${volume}": Internal ID not found`
           );
         }
       } else {
