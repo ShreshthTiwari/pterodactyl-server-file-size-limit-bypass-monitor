@@ -22,9 +22,6 @@ if (config.panel_url.endsWith("/")) {
 const cache = new NodeCache({
   stdTTL: 60 * 60 * 24,
 });
-const cumulativeChanges = new NodeCache({
-  stdTTL: config.cumulative_change_cache_time_in_seconds,
-});
 const serversCache = new NodeCache({
   stdTTL: config.servers_list_cache_time_in_seconds,
 });
@@ -34,7 +31,9 @@ const volumesPath = path.join(config.containers_directory);
 const listDirectoriesAsync = async (basePath) => {
   try {
     const items = await fs.readdir(basePath, { withFileTypes: true });
-    return items.filter((item) => item.isDirectory()).map((item) => item.name);
+    return items
+      .filter((item) => item.isDirectory() && item.name !== ".sftp")
+      .map((item) => item.name);
   } catch (err) {
     console.error(`[${time()}] Error reading directory:`, err.message);
     return [];
@@ -43,13 +42,31 @@ const listDirectoriesAsync = async (basePath) => {
 
 const fetchVolumeSize = async (volumePath) => {
   try {
-    const output = execSync(`du -sb "${volumePath}"`, {
-      encoding: "utf8",
-      maxBuffer: 10 * 1024 * 1024,
-      timeout: 10000,
-    });
-    const sizeInBytes = parseInt(output.split("\t")[0]);
-    return convertToGB(sizeInBytes);
+    const output = execSync(
+      `find "${volumePath}" -type f -exec stat --format=%s {} + 2>/dev/null | awk 'BEGIN{total=0} {total += $1} END{print total}'`,
+      {
+        encoding: "utf8",
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 10000,
+      }
+    );
+
+    const blockOutput = execSync(
+      `find "${volumePath}" -type f -exec stat --format=%b {} + 2>/dev/null | awk 'BEGIN{total=0} {total += $1} END{print total}'`,
+      {
+        encoding: "utf8",
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 10000,
+      }
+    );
+
+    const sizeInBytes = parseInt(output.trim()) || 0;
+    const blockSize = (parseInt(blockOutput.trim()) || 0) * 512;
+
+    const actualSize = Math.max(sizeInBytes, blockSize);
+    const sizeInGB = convertToGB(actualSize);
+
+    return sizeInGB;
   } catch (err) {
     if (err.code === "ETIMEDOUT") {
       console.error(
@@ -72,6 +89,7 @@ const cacheInternalIDs = async (volumes) => {
 
     if (!serversListData) {
       console.log(`[${time()}] Fetching fresh servers list from API...`);
+
       const response = await axios.get(
         `${config.panel_url}/api/application/servers`,
         {
@@ -90,22 +108,14 @@ const cacheInternalIDs = async (volumes) => {
     }
 
     if (serversListData?.data) {
-      const volumeSizePromises = volumes.map(async (volume) => {
-        const volumePath = path.join(volumesPath, volume);
-        const volumeSize = await fetchVolumeSize(volumePath);
-        return { volume, volumeSize };
-      });
-
-      const volumeSizes = await Promise.all(volumeSizePromises);
-
-      for (const { volume, volumeSize } of volumeSizes) {
+      for (const volume of volumes) {
         const server = serversListData.data.find(
-          (s) => s.attributes?.uuid === volume
+          (server) => server.attributes.uuid === volume
         );
+
         if (server) {
           cache.set(volume, {
             internal_id: server.attributes.id,
-            size: volumeSize,
             max_size: server.attributes.limits.disk / 1024,
           });
         } else {
@@ -174,70 +184,29 @@ const main = async () => {
     for (const volume of volumes) {
       const volumePath = path.join(volumesPath, volume);
 
-      let cachedVolumeData = cache.get(volume) ?? { internal_id: 0, size: 0 };
+      let cachedVolumeData = cache.get(volume) ?? {
+        internal_id: 0,
+        max_size: 0,
+      };
       const volumeSize = await fetchVolumeSize(volumePath);
 
-      let cumulativeChange = parseFloat(cumulativeChanges.get(volume) ?? "0");
-
-      if (volumeSize > cachedVolumeData.size) {
-        cumulativeChange += volumeSize - cachedVolumeData.size;
-      }
-
       if (
-        volumeSize - cachedVolumeData.size >=
-          config.check_interval_threshold_in_gb ||
-        cumulativeChange >= config.cumulative_change_threshold_in_gb ||
-        (cachedVolumeData.max_size > 0 &&
-          volumeSize > cachedVolumeData.max_size)
+        cachedVolumeData.max_size > 0 &&
+        volumeSize > cachedVolumeData.max_size
       ) {
-        if (
-          volumeSize - cachedVolumeData.size >=
-          config.check_interval_threshold_in_gb
-        ) {
-          const message = `Volume "${volume}" changed by ${(
-            volumeSize - cachedVolumeData.size
-          ).toFixed(2)}GB (cumulative: ${cumulativeChange.toFixed(
-            2
-          )}GB).\nAbove abuse threshold.\nSuspending volume...`;
-          console.log(`[${time()}] ${message}`);
+        console.log(
+          `[${time()}] Volume "${volume}" has surpassed its maximum storage limit "${
+            cachedVolumeData.max_size
+          }".\nSuspending volume...`
+        );
 
-          await sendDiscordNotification(
-            volume,
-            "Sudden Size Increase",
-            `Volume size increased by ${(
-              volumeSize - cachedVolumeData.size
-            ).toFixed(2)}GB\nCumulative change: ${cumulativeChange.toFixed(
-              2
-            )}GB`
-          );
-        } else if (
-          cumulativeChange >= config.cumulative_change_threshold_in_gb
-        ) {
-          const message = `Volume "${volume}" has accumulated ${cumulativeChange.toFixed(
-            2
-          )}GB of changes.\nSuspective abuse detected.\nSuspending volume...`;
-          console.log(`[${time()}] ${message}`);
-
-          await sendDiscordNotification(
-            volume,
-            "Cumulative Size Increase",
-            `Total accumulated changes: ${cumulativeChange.toFixed(2)}GB`
-          );
-        } else if (
-          cachedVolumeData.max_size > 0 &&
-          volumeSize > cachedVolumeData.max_size
-        ) {
-          const message = `Volume "${volume}" has surpassed its maximum storage limit.\nSuspending volume...`;
-          console.log(`[${time()}] ${message}`);
-
-          await sendDiscordNotification(
-            volume,
-            "Storage Limit Exceeded",
-            `Current size: ${volumeSize.toFixed(2)}GB\nMax allowed: ${(
-              cachedVolumeData.max_size / 1024
-            ).toFixed(2)}GB`
-          );
-        }
+        await sendDiscordNotification(
+          volume,
+          "Storage Limit Exceeded",
+          `Current size: ${volumeSize.toFixed(2)}GB\nMax allowed: ${(
+            cachedVolumeData.max_size / 1024
+          ).toFixed(2)}GB`
+        );
 
         if (cachedVolumeData?.internal_id > 0) {
           try {
@@ -257,7 +226,6 @@ const main = async () => {
             );
 
             console.log(`[${time()}] Volume "${volume}" suspended.`);
-            cumulativeChanges.set(volume, "0");
           } catch (err) {
             console.error(
               `[${time()}] Error suspending volume "${volume}":`,
@@ -271,19 +239,10 @@ const main = async () => {
         }
       } else {
         console.log(
-          `[${time()}] Volume "${volume}" changed by ${(
-            volumeSize - cachedVolumeData.size
-          ).toFixed(2)}GB (cumulative: ${cumulativeChange.toFixed(
-            2
-          )}GB).\nBelow abuse threshold.\nSkipping...`
+          `[${time()}] Volume "${volume}" size is below maximum storage limit "${
+            cachedVolumeData.max_size
+          }".\nBelow abuse threshold.\nSkipping...`
         );
-
-        cache.set(volume, {
-          internal_id: cachedVolumeData.internal_id,
-          size: volumeSize,
-        });
-
-        cumulativeChanges.set(volume, cumulativeChange.toString());
       }
     }
   } else {
