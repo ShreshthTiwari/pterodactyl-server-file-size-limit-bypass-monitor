@@ -188,7 +188,7 @@ const main = async () => {
           config.check_interval_threshold_in_gb ||
         cumulativeChange >= config.cumulative_change_threshold_in_gb ||
         (cachedVolumeData.max_size > 0 &&
-          volumeSize * 1024 > cachedVolumeData.max_size)
+          volumeSize > cachedVolumeData.max_size)
       ) {
         if (
           volumeSize - cachedVolumeData.size >=
@@ -225,7 +225,7 @@ const main = async () => {
           );
         } else if (
           cachedVolumeData.max_size > 0 &&
-          volumeSize * 1024 > cachedVolumeData.max_size
+          volumeSize > cachedVolumeData.max_size
         ) {
           const message = `Volume "${volume}" has surpassed its maximum storage limit.\nSuspending volume...`;
           console.log(`[${time()}] ${message}`);
